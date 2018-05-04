@@ -15,6 +15,8 @@ unsigned long distance_milimeter;
 static unsigned int pingPin = D0;
 static unsigned int LEDPin = D1;
 
+int first;
+int threshold=50;
 
 void configModeCallback (WiFiManager *myWiFiManager) {
   Serial.println("Entered config mode");
@@ -97,7 +99,7 @@ void setup(void) {
   delay(500); //make sure the maxbotix sensor is ready
 
   //establish baseline for about 5 seconds.
-  int first = getDistance();
+  first = getDistance();
   delay(1000);
   while(abs(first-getDistance())>50) //5cm
   {
@@ -106,8 +108,9 @@ void setup(void) {
   }
 
   blinker.detach();
-  analogWrite(LEDPin,900);
+  //analogWrite(LEDPin,900);
   //digitalWrite(LEDPin,LOW); //led ON.
+  digitalWrite(LEDPin,HIGH); //led OFF.
 
 
 }
@@ -117,20 +120,21 @@ unsigned long pulsestart;
 
 void loop(void) {
 
-//distance_milimeter = getDistance();
+distance_milimeter = getDistance();
 
 
 //if baseline is broken, report.
 
 //reestablish baseline?
 
+if(abs(first-distance_milimeter)>threshold) digitalWrite(LEDPin,LOW); //LED ON
+else digitalWrite(LEDPin,HIGH); 
 
-/*
 if(millis()-printTime>20){
   Serial.println(distance_milimeter);
   printTime=millis();
 }
-*/
+
 
   
 }
