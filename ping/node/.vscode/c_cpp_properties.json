@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "C:\\Users\\Mark\\AppData\\Local\\Arduino15\\packages",
+                "C:\\Users\\Mark\\Documents\\Arduino\\libraries"
+                ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": false,
+                "path": [
+                    "C:\\Users\\Mark\\AppData\\Local\\Arduino15\\packages",
+                    "C:\\Users\\Mark\\Documents\\Arduino\\libraries"
+                ]
+            },
+            "intelliSenseMode": "msvc-x64",
+            "cStandard": "c11",
+            "cppStandard": "c++17"
+        }
+    ],
+    "version": 3
+}
