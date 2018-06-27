@@ -71,8 +71,12 @@ while event:
 					if y<0: y=0
 					if x!=0 and y!=0:
 
-						print 'tx: X%u,%u' % (x, y)
-						MESSAGE = struct.pack(TXFORMAT, 'X',x,y)
+						if x<890:
+							print 'tx: X%u,%u' % (x, y) #blue
+							MESSAGE = struct.pack(TXFORMAT, 'X',x,y)
+						else:
+							print 'tx: Y%u,%u' % (x, y) #green
+							MESSAGE = struct.pack(TXFORMAT, 'Y',x,y)
 						sock = socket.socket(socket.AF_INET, # Internet
                      						 socket.SOCK_DGRAM) # UDP
 						sock.sendto(MESSAGE, (UDP_IP, UDP_PORT))
