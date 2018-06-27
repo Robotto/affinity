@@ -9,14 +9,30 @@
 //                   RX  TX  INVERT BUFFER_SIZE
 SoftwareSerial swSer(D5, D6, true, 64);
 
-Ticker blinker; //to asynchronously blink an LED
+Ticker greenBlinker; //to asynchronously blink an LED
+Ticker redBlinker; //to asynchronously blink an LED
 
-unsigned long distance_milimeter;
-static unsigned int pingPin = D0;
-static unsigned int LEDPin = D1;
+//UDP stuff:
+WiFiUDP Udp;
+//const unsigned int remotePort = 1337;
+const int UDP_PACKET_SIZE = 8; //change to whatever you need.
+byte packetBuffer[ UDP_PACKET_SIZE ]; //buffer to hold outgoing packets
 
-int first;
-int threshold=50;
+const char nodeID='A';
+
+const char* host = "192.168.1.107";
+const int hostPort = 5005;
+
+uint16_t distance_milimeter;
+static int greenLEDPin = D1;
+static int redLEDPin = D7;
+static int btnPin = D2;
+
+uint16_t first;
+uint16_t threshold=100;
+
+float vBatt=3.7;
+
 
 void configModeCallback (WiFiManager *myWiFiManager) {
   Serial.println("Entered config mode");
@@ -26,11 +42,19 @@ void configModeCallback (WiFiManager *myWiFiManager) {
 
 void setup(void) {
 
-  WiFi.hostname("ESPing_01_01");
+  measureBatteryVoltage();  
+ 
+  WiFi.hostname("ESPing_01");
+  pinMode(redLEDPin, OUTPUT);
+  pinMode(greenLEDPin, OUTPUT);
+  pinMode(btnPin, INPUT_PULLUP);
 
-  pinMode(LEDPin, OUTPUT);
+  if(vBatt<3.6) {
+    redBlinker.attach(0.1,blink, redLEDPin);
+    while(1) yield(); //halt forever.
+  }
 
-  blinker.attach(0.1, blink, LEDPin);
+  greenBlinker.attach(0.1, blink, greenLEDPin);
 
   
   //WiFi.persistent(false);
@@ -45,7 +69,7 @@ void setup(void) {
   WiFiManager wifiManager;
   Serial.println("Connecting to wifi..");
   wifiManager.setAPCallback(configModeCallback); //set callback that gets called when connecting to previous WiFi fails, and enters Access Point mode
-  wifiManager.setConnectTimeout(60); //try to connect to known wifis for a long time before defaulting to AP mode
+  wifiManager.setConnectTimeout(30); //try to connect to known wifis for a long time before defaulting to AP mode
   
   //fetches ssid and pass and tries to connect
   //if it does not connect it starts an access point with the specified name
@@ -94,52 +118,89 @@ void setup(void) {
 
   Serial.println("ESPing_01 ONLINE");
 
-  pinMode(pingPin,INPUT);
 
-  delay(500); //make sure the maxbotix sensor is ready
+  delay(1500); //make sure the maxbotix sensor is ready
 
   //establish baseline for about 5 seconds.
   first = getDistance();
   delay(1000);
-  while(abs(first-getDistance())>50) //5cm
+  while(abs(first-getDistance())>100) //10cm
   {
     delay(1000);
     first=getDistance();//wait til distance measurement settles to within 5cm
   }
 
-  blinker.detach();
-  //analogWrite(LEDPin,900);
-  //digitalWrite(LEDPin,LOW); //led ON.
-  digitalWrite(LEDPin,HIGH); //led OFF.
+  greenBlinker.detach();
+  //analogWrite(greenLEDPin,900);
+  //digitalWrite(greenLEDPin,LOW); //led ON.
+  digitalWrite(greenLEDPin,HIGH); //led OFF.
 
-
+  Serial.print("first="); Serial.println(first);
 }
 
-unsigned long printTime=0;
-unsigned long pulsestart;
+//unsigned long printTime=0;
+//unsigned long pulsestart;
+bool txHandled = false;
 
 void loop(void) {
 
-distance_milimeter = getDistance();
+measureBatteryVoltage();  
 
+if(vBatt<3.6) {
+    redBlinker.attach(0.1, blink , redLEDPin); //flash the red LED and halt.
+    while(1); //halt forever.
+  }
+
+
+if(vBatt<3.7) digitalWrite(redLEDPin,LOW); //turn on the red LED
+else digitalWrite(redLEDPin,HIGH); //turn off the red LED
+ 
+
+if(swSer.available()) swSer.read(); //keep buffer clean.
+
+distance_milimeter = getDistance();
+while(distance_milimeter<30) distance_milimeter = getDistance();
+
+//  Serial.print("distance_milimeter="); Serial.println(distance_milimeter);
 
 //if baseline is broken, report.
+int diff=first-distance_milimeter;
+if (diff<0) diff=diff*(-1);
+//  Serial.print("diff="); Serial.println(diff);
 
-//reestablish baseline?
+while(diff>threshold) { //TRIGGERED send distance to server!
+  
+  //Serial.println("hit!");
 
-if(abs(first-distance_milimeter)>threshold) digitalWrite(LEDPin,LOW); //LED ON
-else digitalWrite(LEDPin,HIGH); 
+  yield();
 
-if(millis()-printTime>20){
-  Serial.println(distance_milimeter);
-  printTime=millis();
+  if(!txHandled){ //but only once.
+  digitalWrite(greenLEDPin,LOW); //LED ON
+  sendDistanceUDP(distance_milimeter);
+  txHandled=true;
+  
+  }
+
+    distance_milimeter = getDistance();
+  diff=first-distance_milimeter;
+  if (diff<0) diff=diff*(-1);
+
 }
-
-
+    
+if(txHandled){    
+    digitalWrite(greenLEDPin,HIGH); 
+    txHandled=false; //reset transmit flag.
+    Serial.println("Release");
+//if(millis()-printTime>20){
+//  Serial.println(distance_milimeter);
+//  printTime=millis();
+//}
+}
+if(digitalRead(btnPin)==LOW) resetBaseline();
   
 }
 
-int getDistance()
+unsigned int getDistance()
 {
 
   /*
@@ -169,6 +230,63 @@ return 0; //if no serial data available.
 
 }
 
-void blink(unsigned int pin){
+void blink(int pin){
   digitalWrite(pin, !digitalRead(pin));     // set pin to the opposite state
+}
+
+void resetBaseline(void){
+  greenBlinker.attach(0.1, blink, greenLEDPin);  
+  first = getDistance();
+  delay(1000);
+  while(abs(first-getDistance())>100) //10cm
+  {
+    delay(1000);
+    first=getDistance();//wait til distance measurement settles to within 5cm
+  }
+  greenBlinker.detach();
+}
+
+void sendDistanceUDP(unsigned int distance)
+{
+  memset(packetBuffer, 0, UDP_PACKET_SIZE);
+  
+  //String distanceString = String(distance, DEC);
+
+  //if(distanceString.length()<UDP_PACKET_SIZE){ //safety. make buffer bigger if this fails.
+
+  packetBuffer[0]=nodeID; 
+  
+//unsigned integer format:  
+// aaaaaaaa bbbbbbbb
+
+  packetBuffer[1]=(distance>>8);//&0x00ff; //aaaaaaaa
+  packetBuffer[2]=distance;    //bbbbbbbb
+  packetBuffer[3]='\0';
+  
+  /*
+  for(int i=0;i<distanceString.length();i++){
+
+  packetBuffer[i+1]=distanceString.charAt(i); //there's a nodeID at place 0.
+  }
+
+  packetBuffer[distanceString.length()+1]='\n'; 
+
+  }*/
+  //else Serial.println("BIG FAIL! distance string is longer bigger than UDP_PACKET_SIZE!!: distanceString.length()=" + String(distanceString.length()) + ". UDP_PACKET_SIZE=" + String(UDP_PACKET_SIZE) );
+  //Udp.beginPacket(doorIP, remotePort);
+  Udp.beginPacket(host,hostPort);
+  
+  //Udp.beginPacket(doorAddress,remotePort);
+  //Udp.write(packetBuffer, distanceString.length()+2); //nodeID at start, newline at end.
+  Udp.write(packetBuffer, 4); //nodeID at start
+  Udp.endPacket();
+  Serial.print("TX:"); Serial.println(distance);
+  
+}
+
+void measureBatteryVoltage(void){
+  float analogSum;
+  for(int i=0;i<16;i++) analogSum+=analogRead(A0);
+  float battRaw=analogSum/16.0;
+  vBatt = battRaw * (4.2 / 1023.0);
 }
