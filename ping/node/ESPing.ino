@@ -18,20 +18,25 @@ WiFiUDP Udp;
 const int UDP_PACKET_SIZE = 8; //change to whatever you need.
 byte packetBuffer[ UDP_PACKET_SIZE ]; //buffer to hold outgoing packets
 
-const char nodeID='A';
 
 const char* host = "192.168.1.107";
 const int hostPort = 5005;
 
 uint16_t distance_milimeter;
-static int greenLEDPin = D1;
-static int redLEDPin = D7;
-static int btnPin = D2;
+static int greenLEDPin = D1; //active low, a 68ohm resistor yelds 17.6mA
+static int redLEDPin = D7;   //active low, a 68ohm resistor yelds 19.6mA
+static int btnPin = D2; //active low, configured as INPUT_PULLUP
+
+//sensors on A and B return inches, C and D returns mm.
+const String deviceName = "D";
+const char* apName = "ESPing_D";
+const char nodeID='D';
 
 uint16_t first;
 uint16_t threshold=100;
 
-float vBatt=3.7;
+float vBatt=4.2;
+bool doBatteryCheck=true;
 
 
 void configModeCallback (WiFiManager *myWiFiManager) {
@@ -42,12 +47,25 @@ void configModeCallback (WiFiManager *myWiFiManager) {
 
 void setup(void) {
 
-  measureBatteryVoltage();  
+  Serial.begin(115200); //DEBUG // PC
+  Serial.println("Hello!");
+  
+
  
-  WiFi.hostname("ESPing_01");
+  WiFi.hostname(apName);
   pinMode(redLEDPin, OUTPUT);
   pinMode(greenLEDPin, OUTPUT);
   pinMode(btnPin, INPUT_PULLUP);
+
+  digitalWrite(redLEDPin,HIGH);
+
+  delay(200);
+
+  if(digitalRead(btnPin)==LOW) doBatteryCheck=false; //if button is held on reset.
+
+  measureBatteryVoltage();  
+
+  Serial.print("vBatt="); Serial.println(vBatt);
 
   if(vBatt<3.6) {
     redBlinker.attach(0.1,blink, redLEDPin);
@@ -60,10 +78,8 @@ void setup(void) {
   //WiFi.persistent(false);
   //WiFi.mode(WIFI_STA); //prevent random APs from forming?!
 
-  Serial.begin(115200); //DEBUG // PC
   swSer.begin(9600); //sonar
-  Serial.println("Hello!");
-  
+
   //WiFiManager
   //Local intialization. Once its business is done, there is no need to keep it around
   WiFiManager wifiManager;
@@ -75,7 +91,7 @@ void setup(void) {
   //if it does not connect it starts an access point with the specified name
   //here  "ESPNFC"
   //and goes into a blocking loop awaiting configuration
-  if (!wifiManager.autoConnect("ESPing_01")) {
+  if (!wifiManager.autoConnect(apName)) {
     Serial.println("failed to connect and hit timeout");
     ESP.restart(); //reset and try again, or maybe put it to deep sleep 
   }
@@ -84,7 +100,7 @@ void setup(void) {
   // Port defaults to 8266
   // ArduinoOTA.setPort(8266);
   // Hostname defaults to esp8266-[ChipID]
-  ArduinoOTA.setHostname("ESPing_01");
+  ArduinoOTA.setHostname(apName);
   // No authentication by default
   //ArduinoOTA.setPassword((const char *)"1804020311");
   //ArduinoOTA.setPasswordHash((const char *)"77ca9ed101ac99e43b6842c169c20fda");
@@ -116,10 +132,10 @@ void setup(void) {
 
   ArduinoOTA.begin();
 
-  Serial.println("ESPing_01 ONLINE");
+  Serial.println("ESPing_" + deviceName + " ONLINE");
 
 
-  delay(1500); //make sure the maxbotix sensor is ready
+  delay(2000); //make sure the maxbotix sensor is ready
 
   //establish baseline for about 5 seconds.
   first = getDistance();
@@ -132,8 +148,8 @@ void setup(void) {
 
   greenBlinker.detach();
   //analogWrite(greenLEDPin,900);
-  //digitalWrite(greenLEDPin,LOW); //led ON.
-  digitalWrite(greenLEDPin,HIGH); //led OFF.
+  digitalWrite(greenLEDPin,LOW); //led ON.
+  //digitalWrite(greenLEDPin,HIGH); //led OFF.
 
   Serial.print("first="); Serial.println(first);
 }
@@ -161,7 +177,7 @@ if(swSer.available()) swSer.read(); //keep buffer clean.
 distance_milimeter = getDistance();
 while(distance_milimeter<30) distance_milimeter = getDistance();
 
-//  Serial.print("distance_milimeter="); Serial.println(distance_milimeter);
+//Serial.print("distance_milimeter="); Serial.println(distance_milimeter);
 
 //if baseline is broken, report.
 int diff=first-distance_milimeter;
@@ -172,12 +188,16 @@ while(diff>threshold) { //TRIGGERED send distance to server!
   
   //Serial.println("hit!");
 
+  if(swSer.available()) swSer.read(); //keep buffer clean.
+
+
   yield();
 
   if(!txHandled){ //but only once.
-  digitalWrite(greenLEDPin,LOW); //LED ON
+  digitalWrite(greenLEDPin,HIGH); //LED OFF
   sendDistanceUDP(distance_milimeter);
   txHandled=true;
+  Serial.println(distance_milimeter);
   
   }
 
@@ -188,7 +208,7 @@ while(diff>threshold) { //TRIGGERED send distance to server!
 }
     
 if(txHandled){    
-    digitalWrite(greenLEDPin,HIGH); 
+    digitalWrite(greenLEDPin,LOW); //LED ON 
     txHandled=false; //reset transmit flag.
     Serial.println("Release");
 //if(millis()-printTime>20){
@@ -196,6 +216,7 @@ if(txHandled){
 //  printTime=millis();
 //}
 }
+
 if(digitalRead(btnPin)==LOW) resetBaseline();
   
 }
@@ -222,8 +243,12 @@ if(swSer.available())
   while(swSer.read()!='R'); //wait for beginning of measurement
   int measurement = swSer.parseInt();
   //Serial.println(measurement);
-  return measurement;
 
+  //sensors on A and B return inches, sensors on C and D return mm.
+  if(nodeID=='C' || nodeID=='D') return measurement;
+
+  if(nodeID=='A' || nodeID=='B') return int((float)measurement*25.4);
+  
 }
 
 return 0; //if no serial data available.
@@ -243,6 +268,7 @@ void resetBaseline(void){
     delay(1000);
     first=getDistance();//wait til distance measurement settles to within 5cm
   }
+  Serial.print("baseline: "); Serial.println(first);
   greenBlinker.detach();
 }
 
@@ -288,5 +314,5 @@ void measureBatteryVoltage(void){
   float analogSum;
   for(int i=0;i<16;i++) analogSum+=analogRead(A0);
   float battRaw=analogSum/16.0;
-  vBatt = battRaw * (4.2 / 1023.0);
+  if(doBatteryCheck) vBatt = battRaw * (4.2 / 1023.0);
 }
