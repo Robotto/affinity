@@ -9,7 +9,7 @@ infile_path = "/dev/input/event" + (sys.argv[1] if len(sys.argv) > 1 else "12")
 
 #long int, long int, unsigned short, unsigned short, unsigned int
 FORMAT = 'llHHI'
-TXFORMAT = 'cII'
+TXFORMAT = 'cff'
 EVENT_SIZE = struct.calcsize(FORMAT)
 
 #open file in binary mode
@@ -19,12 +19,10 @@ event = in_file.read(EVENT_SIZE)
 
 x=None
 y=None
-oldX=None
-oldY=None
 eventcounter=0
 
-xmax=0
-ymax=0
+#XRANGE : 0-890
+#YRANGE : 70-1660
 
 xOffset=-140
 yOffset=-72
@@ -37,60 +35,63 @@ UDP_PORT = 5005
 # 1: pen up
 
 while event:
-	(tv_sec, tv_usec, type, code, value) = struct.unpack(FORMAT, event)
+	(tv_sec, tv_usec, eventtype, code, value) = struct.unpack(FORMAT, event)
 
 	# Events with code, type and value == 0 are "separator" events
-	if type != 0 or code != 0 or value != 0: 
-		if type == 1:
+	if eventtype != 0 or code != 0 or value!=0: 
+		#print 'type=' + str(eventtype)
+		#print 'code=' + str(code)
+		#print 'value=' + str(value)
+		#print
+		if eventtype == 1:
 				x=None
 				y=None
-				oldX=None
-				oldY = None
+				eventcounter=0
 				#REVERSING COODRINATES TO ACCOUNT FOR HARDWARE LAYOUT!!
-		if type == 3 and code == 00: #Type: MOVE, CODE: X (set to y)
+		if eventtype == 3 and code == 00: #Type: MOVE, CODE: X (set to y)
 				#print("x: %u") % value
 				#oldX=x
 				y=value
 				eventcounter+=1
-		if type == 3 and code == 01: #Type: MOVE, CODE: Y (set to x)
+		if eventtype == 3 and code == 01: #Type: MOVE, CODE: Y (set to x)
 				#print("y: %u") % value
 				#oldY=y
 				x=value
 				eventcounter+=1
-		if type == 3 and x!=None and y!=None:
+
+		if eventtype == 3 and x!=None and y!=None and eventcounter==2:
 				#print("x,y: %u,%u") %(x,y)
 				#print eventcounter
 				#		pass
-				if eventcounter%2==0:
-					eventcounter=0
+				eventcounter=0
 
-					x=x+xOffset
-					y=y+yOffset
-
-					if x<0: x=0
-					if y<0: y=0
-					if x!=0 and y!=0:
-
-						if x<890:
-							print 'tx: X%u,%u' % (x, y) #blue
-							MESSAGE = struct.pack(TXFORMAT, 'X',x,y)
-						else:
-							print 'tx: Y%u,%u' % (x, y) #green
-							MESSAGE = struct.pack(TXFORMAT, 'Y',x,y)
-						sock = socket.socket(socket.AF_INET, # Internet
-                     						 socket.SOCK_DGRAM) # UDP
-						sock.sendto(MESSAGE, (UDP_IP, UDP_PORT))
+				x=x+xOffset
+				y=y+yOffset
 
 
-					#if x>xmax:
-					#	xmax=x
 
-					#if y>ymax:
-					#	ymax=y
+				if x<0: x=0
+				if y<0: y=0
+				if x!=0 and y!=0:
 
-					#print 'Max: X:%u Y:%u' % (xmax,ymax) 
-					#Max: X:1757 Y:1889
+					if y>1660: y=1660
+					y=1660.0-y #flip the y axis
+				
+					y=y/1660.0 #normalize
 
+					if x<890:
+						x=x/890.0 #normalize
+						print 'tx: X%f,%f' % (x, y) #blue
+						MESSAGE = struct.pack(TXFORMAT, 'X',x,y)
+					else:
+						x=x-890
+						x=x/890.0 #normalize
+						print 'tx: Y%f,%f' % (x, y) #green
+						MESSAGE = struct.pack(TXFORMAT, 'Y',x,y)
+					
+					sock = socket.socket(socket.AF_INET, # Internet
+                 						 socket.SOCK_DGRAM) # UDP
+					sock.sendto(MESSAGE, (UDP_IP, UDP_PORT))
 					
 	else:
 		pass
