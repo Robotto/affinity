@@ -4,8 +4,10 @@ from IPy import IP
 import socket
 from time import time, ctime, sleep
 
-from BroadcasterWebsocketServer import BroadcasterWebsocketServer
+from collections import deque
 
+
+from BroadcasterWebsocketServer import BroadcasterWebsocketServer
 
 import struct
 import json
@@ -22,7 +24,7 @@ listen_addr = ("",incomingPort)
 UDPSock.bind(listen_addr)
 
 DISTANCEFORMAT = 'cH' #Char, unsigned short - TODO: looks to be expecting 8 bytes...  Is this Arduino compatible?
-DRAWFORMAT     = 'cII'
+DRAWFORMAT     = 'cff'
 DRAW_EVENT_SIZE = struct.calcsize(DRAWFORMAT)
 DISTANCE_EVENT_SIZE = struct.calcsize(DISTANCEFORMAT)
 
@@ -47,15 +49,21 @@ def postIt(distances, payload,timeStamp,postitQ): #called when a post-it has 4 d
 
 
     #img = json.dumps({'img':payload}, cls=SetEncoder)
-    points = "{"
+    points = "["
     i=0
     while i < len(payload):
-        set=iter(payload[i])
-        #points += "\"" + str(i) + "\": " + "{\"X\": "+ str(next(set)) + ", \"Y\": " + str(next(set)) + "}" #quick and dirty formatting...
-        points += "[" + str(next(set)) + "," + str(next(set)) + "]  " #quick and dirty formatting...
+#        set=iter(payload[i])
+#        points += "[" + str(next(set)) + "," + str(next(set)) + "]  " #quick and dirty formatting...
+
+        set = payload[i]
+        points += "[" + str(set[0]) + "," + str(set[1]) + "]  " #quick and dirty formatting...
+
+#        if(i<len(payload)-2) : points +=","
         if(i<len(payload)-1) : points +=","
+
         i += 1
-    points +="}"
+
+    points +="]"
 
     dt = json.dumps({'time':timeStamp})
 
@@ -112,22 +120,44 @@ def dataHandlingThread(dataQ,postitQ):
 
         try:
             data = dataQ.get(False)  # get data from other thread (via queue)
+            print data[0]
         except Queue.Empty:
             pass
 
 
         # poorly constructed data validation.. bear with me...
         if(data[0]=='!'):
-            print 'got trigger data'
+            print 'got trigger data for: ' + str(data[1])
 
             if data[1] == 'X':
                 Xtriggered=True
+
             if data[1] == 'Y':
                 Ytriggered=True
+
             if data[1] == 'Z':
                 Ztriggered=True
+
             if data[1] == 'Q':
                 Qtriggered=True
+
+
+
+            if Xtriggered == True and len(Xpoints) == 0:
+                print 'ignoring trigger for X, since it has no image data'
+                Xtriggered = False
+
+            if Ytriggered == True and len(Ypoints) == 0:
+                print 'ignoring trigger for Y, since it has no image data'
+                Ytriggered = False
+
+            if Ztriggered == True and len(Zpoints) == 0:
+                print 'ignoring trigger for Z, since it has no image data'
+                Ztriggered = False
+
+            if Qtriggered == True and len(Qpoints) == 0:
+                print 'ignoring trigger for Q, since it has no image data'
+                Qtriggered = False
 
         if (data[0]=='X' or data[0]=='Y' or data[0]=='Z' or data[0]=='Q') and len(data)==DRAW_EVENT_SIZE:
             (id, x,y) = struct.unpack(DRAWFORMAT, data)
@@ -140,14 +170,14 @@ def dataHandlingThread(dataQ,postitQ):
             #Store in a collection that matches the ID.
             #quick and dirty duplicate code.. sue me.
             if id=='X':
-                Xpoints.append({x,y})
-                #print Xpoints
+                Xpoints.append([x,y])
+            #    print Xpoints
             if id=='Y':
-                Ypoints.append({x,y})
+                Ypoints.append([x,y])
             if id=='Z':
-                Zpoints.append({x,y})
+                Zpoints.append([x,y])
             if id=='Q':
-                Qpoints.append({x,y})
+                Qpoints.append([x,y])
 
         if (data[0]=='A' or data[0]=='B' or data[0]=='C' or data[0]=='D') and len(data)==DISTANCE_EVENT_SIZE:
             print 'Got Distance Data'
@@ -183,7 +213,6 @@ def dataHandlingThread(dataQ,postitQ):
 
 
     # if $SOMETIME has passed while not receiving 4 distance measurements, cut it short and release it as an incomplete set.
-                # TODO: The timeout does not fire!
         if (Xtriggered==True or Ytriggered==True or Ztriggered==True or Qtriggered==True) and len(distances)==4 or (len(distances)>0 and (int(time())>distance_data_RX_time+distanceTimeout)):
 
             # Clear the relevant points set:
