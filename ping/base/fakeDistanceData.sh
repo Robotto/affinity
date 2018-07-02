@@ -1,6 +1,6 @@
 #!/bin/bash
-echo "A12" | ncat localhost -u 5005
-echo "B78" | ncat localhost -u 5005
-echo "C34" | ncat localhost -u 5005
-#echo "D91" | ncat localhost -u 5005
+echo "A01" | ncat localhost -u 5005
+echo "B02" | ncat localhost -u 5005
+echo "C03" | ncat localhost -u 5005
+echo "D04" | ncat localhost -u 5005
 
