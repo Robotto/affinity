@@ -23,7 +23,7 @@ UDPSock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
 listen_addr = ("",incomingPort)
 UDPSock.bind(listen_addr)
 
-DISTANCEFORMAT = 'cH' #Char, unsigned short - TODO: looks to be expecting 8 bytes...  Is this Arduino compatible?
+DISTANCEFORMAT = 'cL' #Char, unsigned short - TODO: looks to be expecting 8 bytes...  Is this Arduino compatible?
 DRAWFORMAT     = 'cff'
 DRAW_EVENT_SIZE = struct.calcsize(DRAWFORMAT)
 DISTANCE_EVENT_SIZE = struct.calcsize(DISTANCEFORMAT)
@@ -186,7 +186,7 @@ def dataHandlingThread(dataQ,outgoingQ,commandQ):
             if id=='Q':
                 Qpoints.append([x,y])
 
-        if (data[0]=='A' or data[0]=='B' or data[0]=='C' or data[0]=='D') and len(data)==DISTANCE_EVENT_SIZE:
+        if (data[0]=='A' or data[0]=='B' or data[0]=='C' or data[0]=='D'): #and len(data)==DISTANCE_EVENT_SIZE:
             print 'Got Distance Data'
 
     #        print format(ord(data[0]), 'b')
@@ -197,9 +197,11 @@ def dataHandlingThread(dataQ,outgoingQ,commandQ):
 
             id=data[0]
 
-            distance=ord(data[1])<<8 | ord(data[2]) #manual unpack, since debugging the python unpack took too long.
+            if not calibrationMode==True:
+                distance=ord(data[1])<<8 | ord(data[2]) #manual unpack, since debugging the python unpack took too long.
 
-            #(id,distance) = struct.unpack(DISTANCEFORMAT, data)
+            if calibrationMode==True:
+                (id,distance) = struct.unpack(DISTANCEFORMAT, data)
 
         #        print id
         #        print distance
