@@ -3,16 +3,19 @@
 from threading import Thread
 from time import sleep
 from SimpleWebSocketServer import WebSocket, SimpleWebSocketServer
+import Queue
 
 clients = []
 debug = False
-
+dataQ=Queue.Queue()
 
 class WebsocketBroadcasterHandler(WebSocket):
 
     def handleMessage(self):
-        if debug:
-            self.sendMessage(self.data)
+        dataQ.put(self.data)
+
+        #self.sendMessage(self.data)
+
 
     def handleConnected(self):
         if debug:
@@ -27,13 +30,17 @@ class WebsocketBroadcasterHandler(WebSocket):
 
 class BroadcasterWebsocketServer(Thread):
 
-    def __init__(self, host, port, debugInfo=False):
+    def __init__(self, host, port,incomingQ, debugInfo=False):
         Thread.__init__(self)
         self.server = SimpleWebSocketServer(host, port, WebsocketBroadcasterHandler)
         self._isClosed = False
         global debug
         debug = debugInfo
+#        incomingQ=dataQ
         self.setDaemon(True)
+
+    def getQ(self):
+        return dataQ
 
     def start(self):
         super(BroadcasterWebsocketServer, self).start()
