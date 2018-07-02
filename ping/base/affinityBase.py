@@ -17,7 +17,7 @@ import threading, Queue
 
 wsport = 5000
 incomingPort = 5005
-distanceTimeout=2
+distanceTimeout=1
 
 UDPSock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
 listen_addr = ("",incomingPort)
@@ -31,7 +31,6 @@ DISTANCE_EVENT_SIZE = struct.calcsize(DISTANCEFORMAT)
 print 'distance_event_size:' + str(DISTANCE_EVENT_SIZE)
 print 'draw_event_size:' + str(DRAW_EVENT_SIZE)
 
-
 #ideal data format for a post-it note:
 # A - Distance in mm from sensor A
 # B - Distance in mm from sensor B
@@ -43,7 +42,7 @@ print 'draw_event_size:' + str(DRAW_EVENT_SIZE)
 
 
 
-def postIt(distances, payload,timeStamp,postitQ): #called when a post-it has 4 distance points and a collection of point data
+def postIt(distances, payload,timeStamp,outgoingQ): #called when a post-it has 4 distance points and a collection of point data
 
     #pos = json.dumps({'pos':distances}) #<-works
 
@@ -52,13 +51,11 @@ def postIt(distances, payload,timeStamp,postitQ): #called when a post-it has 4 d
     points = "["
     i=0
     while i < len(payload):
-#        set=iter(payload[i])
-#        points += "[" + str(next(set)) + "," + str(next(set)) + "]  " #quick and dirty formatting...
 
         set = payload[i]
-        points += "[" + str(set[0]) + "," + str(set[1]) + "]  " #quick and dirty formatting...
+#        points += "[" + str(set[0]) + "," + str(set[1]) + "]  " #quick and dirty formatting...
+        points += "[ %.3f , %.3f ]" % (set[0],set[1]) #quick and dirty formatting...
 
-#        if(i<len(payload)-2) : points +=","
         if(i<len(payload)-1) : points +=","
 
         i += 1
@@ -67,7 +64,7 @@ def postIt(distances, payload,timeStamp,postitQ): #called when a post-it has 4 d
 
     dt = json.dumps({'time':timeStamp})
 
-    package = '{' + "\"time\": " + str(timeStamp) + "," + "\"pos\": " + str(distances).replace('\'','\"') + "," + "\"img\": " + points + "}" #quick and dirty, because i couldn't be bothered with jsonmerge
+    package = '{'+ '\"cmd\":\"operate\",' + '\"data\":' + '{' + "\"time\": " + str(timeStamp) + "," + "\"pos\": " + str(distances).replace('\'','\"') + "," + "\"img\": " + points + "}}" #quick and dirty, because i couldn't be bothered with jsonmerge
 
     #print 'pos:' + pos
     #print 'img:' + img
@@ -75,8 +72,7 @@ def postIt(distances, payload,timeStamp,postitQ): #called when a post-it has 4 d
 
     print 'Packaged post-it. Sending to queue'
     #print package
-    postitQ.put(package)
-    # TODO: Serve the data through a websocket to whomever is listening...
+    outgoingQ.put(package)
 
 
 def udpThread(dataQ):
@@ -97,7 +93,7 @@ def udpThread(dataQ):
 
         dataQ.put(data) #push data to other thread (via queue)
 
-def dataHandlingThread(dataQ,postitQ):
+def dataHandlingThread(dataQ,outgoingQ,commandQ):
     distances = {}  # dict
     Xpoints = []  # set
     Ypoints = []  # set
@@ -111,6 +107,8 @@ def dataHandlingThread(dataQ,postitQ):
 
     distance_data_RX_time = 0
 
+    calibrationMode = False
+
     print 'data handling thread started.'
 
 
@@ -121,6 +119,15 @@ def dataHandlingThread(dataQ,postitQ):
         try:
             data = dataQ.get(False)  # get data from other thread (via queue)
             print data[0]
+        except Queue.Empty:
+            pass
+
+        try:
+            calibrationMode = commandQ.get(False)  # get data from other thread (via queue)
+            if calibrationMode==True:
+                print 'Switched to calibration mode'
+            if calibrationMode==False:
+                print 'Switched to operation mode'
         except Queue.Empty:
             pass
 
@@ -207,66 +214,102 @@ def dataHandlingThread(dataQ,postitQ):
 
             #if nothing is triggered ignore distance:
             #TODO: this is where one would implement functionality of moving already placed post-its.
-            if not (Xtriggered==True or Ytriggered==True or Ztriggered==True or Qtriggered==True):
-                print "no post-its are triggered, ignoring distance data."
+
+            if not (calibrationMode==True or Xtriggered==True or Ytriggered==True or Ztriggered==True or Qtriggered==True):
+                print "no post-its are triggered, and not in calibration mode, ignoring distance data."
                 distances = {}  # clear the distances dict
 
 
     # if $SOMETIME has passed while not receiving 4 distance measurements, cut it short and release it as an incomplete set.
-        if (Xtriggered==True or Ytriggered==True or Ztriggered==True or Qtriggered==True) and len(distances)==4 or (len(distances)>0 and (int(time())>distance_data_RX_time+distanceTimeout)):
+        if calibrationMode==False and ((Xtriggered==True or Ytriggered==True or Ztriggered==True or Qtriggered==True) and len(distances)==4 or (len(distances)>0 and (int(time())>distance_data_RX_time+distanceTimeout))):
 
             # Clear the relevant points set:
             if Xtriggered == True:
-                postIt(distances, Xpoints, distance_data_RX_time,postitQ)
+                postIt(distances, Xpoints, distance_data_RX_time,outgoingQ)
                 Xpoints = []
                 Xtriggered = False
 
             if Ytriggered == True:
-                postIt(distances, Ypoints, distance_data_RX_time,postitQ)
+                postIt(distances, Ypoints, distance_data_RX_time,outgoingQ)
                 Ypoints = []
                 Ytriggered = False
 
             if Ztriggered == True:
-                postIt(distances, Zpoints, distance_data_RX_time,postitQ)
+                postIt(distances, Zpoints, distance_data_RX_time,outgoingQ)
                 Zpoints = []
                 Ztriggered = False
 
             if Qtriggered == True:
-                postIt(distances, Qpoints, distance_data_RX_time,postitQ)
+                postIt(distances, Qpoints, distance_data_RX_time,outgoingQ)
                 Qpoints = []
                 Qtriggered = False
 
             distances = {}  # clear the distances dict
 
+        if calibrationMode==True and (len(distances)>0 and (int(time())>distance_data_RX_time+distanceTimeout)):
+
+            package ='{'+ '\"cmd\":\"calibrate\",' + '\"data\":' '{' + "\"time\": " + str(distance_data_RX_time) + "," + "\"pos\": " + str(distances).replace('\'','\"') + "}}"
+
+            # print 'pos:' + pos
+            # print 'img:' + img
+            # print 'time:' + dt
+
+            print 'Packaged distance data. Sending to queue'
+            # print package
+            outgoingQ.put(package)
+
+            distances = {}  # clear the distances dict
 
 
 
-
-def websocketThread(postitQ):
+def websocketThread(outgoingQ,incomingQ,commandQ):
 
 
     print 'websocket thread started.'
-    server = BroadcasterWebsocketServer('', wsport, True)
+    server = BroadcasterWebsocketServer('', wsport, incomingQ, True)
     server.start()
+    incomingQ=server.getQ()
 
     print 'websocket server started'
 
     while True:
 
         try:
-            postit = postitQ.get(False)  # get data from other thread (via queue) - non blocking
-            print "got postit data:" + postit
+            postit = outgoingQ.get(False)  # get data from other thread (via queue) - non blocking
+            print "Broadcasting data: " + postit
             server.broadcast(postit)
         except Queue.Empty:
             pass
 
+        try:
+            incoming = incomingQ.get(False)  # get data from other thread (via queue) - non blocking
+            print "got websocket data: " + incoming
 
-dataQ = Queue.Queue()
-postitQ = Queue.Queue()
+            try:
+                command = json.loads(incoming)['cmd'].lower() #lowercase...
+                if command=='operate':
+                    #OPERATE
+                    calibrationMode=False
+                    commandQ.put(calibrationMode)
+                if command=='calibrate':
+                    #CALIBRATE
+                    calibrationMode=True
+                    commandQ.put(calibrationMode)
+
+            except:
+                print 'invalid json recieved. did you issue a cmd?'
+        except Queue.Empty:
+            pass
+
+
+dataQ = Queue.Queue() #for storing recieved data via UDP
+outgoingQ = Queue.Queue() #for moving postit data
+incomingQ = Queue.Queue() #for storing rx websocket data
+commandQ = Queue.Queue() #for communicating states between threads
 
 thread1 = threading.Thread(target=udpThread,args=(dataQ,))
-thread2 = threading.Thread(target=dataHandlingThread,args=(dataQ,postitQ,))
-thread3 = threading.Thread(target=websocketThread,args=(postitQ,))
+thread2 = threading.Thread(target=dataHandlingThread,args=(dataQ,outgoingQ,commandQ,))
+thread3 = threading.Thread(target=websocketThread,args=(outgoingQ,incomingQ,commandQ,))
 
 #make threads killable with ctrl+c:
 thread1.daemon=True
