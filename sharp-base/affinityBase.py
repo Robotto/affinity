@@ -130,54 +130,6 @@ def dataHandlingThread(dataQ,outgoingQ,commandQ):
         except Queue.Empty:
             pass
 
-#TESTDATA: send 'Fn' where n is 0-2 to the UDP port (5005) to simulate sensor data for a post it placement:
-        if data[0]=='S':
-            print 'creating simulated postit data'
-            distance_data_RX_time = int(time())  # Start a timer
-
-            if data[1]=='0': #X=60, Y=100
-                distances['A']= 558.7933428379404
-                distances['B']= 456.2071897723662
-                distances['C']= 370.3039292257105
-                distances['D']= 491.1720676097125
-            if data[1] == '1': #X=200, Y=75
-                distances['A'] = 653.1653695657785
-                distances['B'] = 593.5065290289564
-                distances['C'] = 287.14108030722457
-                distances['D'] = 396.01136347332255
-            if data[1] == '2': #X=0, Y=0
-                distances['A'] = 447.49301670528894
-                distances['B'] = 463.81569615527235
-                distances['C'] = 478.87889909662965
-                distances['D'] = 463.0874647407334
-            print distances
-
-#TESTDATA: send '?n' where n is 0-4 to the UDP port (5005) to simulate calibration sensor data:
-#        if data[0]=='?':
-#            distance_data_RX_time = int(time())  # Start a timer
-#            if data[1]=='0': #Top left
-#                distances['A'] = 958.4247492630811
-#                distances['B'] = 788.4624277668531
-#                distances['C'] = 90.7358804442873
-#                distances['D'] = 552.3929760596164
-
-#            if data[1] == '1': #Top right
-#                distances['A'] = 1021.7524161948431
-#                distances['B'] = 864.333847538091
-#                distances['C'] = 160.3527361787132
-#                distances['D'] = 567.9947182853024
-
-#            if data[1] == '2': #Bottom left
-#                distances['A'] = 1003.7419987227794
-#                distances['B'] = 787.497936505233
-#                distances['C'] = 81.93289937503738
-#                distances['D'] = 627.7403922004701
-
-#            if data[1] == '3': #Bottom right
-#                distances['A'] = 1064.3768129755551
-#                distances['B'] = 863.4541099560532
-#                distances['C'] = 155.54099138169335
-#                distances['D'] = 641.5122757983669
 
         # poorly constructed data validation.. bear with me...
         if(data[0]=='!'):
@@ -233,24 +185,22 @@ def dataHandlingThread(dataQ,outgoingQ,commandQ):
             if id=='Q':
                 Qpoints.append([x,y])
 
-        if (data[0]=='A' or data[0]=='B' or data[0]=='C' or data[0]=='D'): #and len(data)==DISTANCE_EVENT_SIZE:
-            print 'Got Distance Data'
+        if (data[0]=='E'): #and len(data)==DISTANCE_EVENT_SIZE:
+            print 'Got Position Data'
 
 
             id=data[0]
 
             if calibrationMode==False:
-                distance=ord(data[1])<<8 | ord(data[2]) #manual unpack, since debugging the python unpack took too long.
+                rx=data.rstrip('\n')
+                print rx.split(',')[1]
+                print rx.split(',')[2]
+                distances['y']=rx.split(',')[2]
+                distances['x']=rx.split(',')[1]
 
-            #if calibrationMode==True: #Proper unpack, since the data comes from a script...
-            #    (id,distance) = struct.unpack(DISTANCEFORMAT, data)
-
-
-            if len(distances)>2:
+            if len(distances)>1:
                 distance_data_RX_time = int(time())  # Start a timer
 
-
-            distances[id]=distance
 
             print 'Distances:' + str(distances)
 
@@ -264,7 +214,7 @@ def dataHandlingThread(dataQ,outgoingQ,commandQ):
 
 
     # if $SOMETIME has passed while not receiving 4 distance measurements, cut it short and release it as an incomplete set.
-        if calibrationMode==False and ((Xtriggered==True or Ytriggered==True or Ztriggered==True or Qtriggered==True) and len(distances)==4 or (len(distances)>2 and (int(time())>distance_data_RX_time+distanceTimeout))):
+        if calibrationMode==False and ((Xtriggered==True or Ytriggered==True or Ztriggered==True or Qtriggered==True) and len(distances)==2):
 
             # Clear the relevant points set:
             if Xtriggered == True:
@@ -289,44 +239,6 @@ def dataHandlingThread(dataQ,outgoingQ,commandQ):
 
             distances = {}  # clear the distances dict
 
-        #if calibrationMode==True and (len(distances)>0 and (int(time())>distance_data_RX_time+distanceTimeout)):
-        if calibrationMode==True and data[0]=='?':
-
-            #package ='{'+ '\"cmd\":\"calibrate\",' + '\"data\":' '{' + "\"time\": " + str(distance_data_RX_time) + "," + "\"pos\": " + str(distances).replace('\'','\"') + "}}"
-            distance_data_RX_time = int(time())
-            distances['A'] = 958.4247492630811
-            distances['B'] = 788.4624277668531
-            distances['C'] = 90.7358804442873
-            distances['D'] = 552.3929760596164
-            package ='{'+ '\"cmd\":\"calibrate\",' + '\"data\":' '{' + "\"time\": " + str(distance_data_RX_time) + "," + "\"pos\": " + str(distances).replace('\'','\"') + "}}"
-            outgoingQ.put(package)
-
-            distance_data_RX_time = int(time())
-            distances['A'] = 1021.7524161948431
-            distances['B'] = 864.333847538091
-            distances['C'] = 160.3527361787132
-            distances['D'] = 567.9947182853024
-            package ='{'+ '\"cmd\":\"calibrate\",' + '\"data\":' '{' + "\"time\": " + str(distance_data_RX_time) + "," + "\"pos\": " + str(distances).replace('\'','\"') + "}}"
-            outgoingQ.put(package)
-
-            distance_data_RX_time = int(time())
-            distances['A'] = 1003.7419987227794
-            distances['B'] = 787.497936505233
-            distances['C'] = 81.93289937503738
-            distances['D'] = 627.7403922004701
-            package ='{'+ '\"cmd\":\"calibrate\",' + '\"data\":' '{' + "\"time\": " + str(distance_data_RX_time) + "," + "\"pos\": " + str(distances).replace('\'','\"') + "}}"
-            outgoingQ.put(package)
-
-            distances['A'] = 1064.3768129755551
-            distances['B'] = 863.4541099560532
-            distances['C'] = 155.54099138169335
-            distances['D'] = 641.5122757983669
-            package ='{'+ '\"cmd\":\"calibrate\",' + '\"data\":' '{' + "\"time\": " + str(distance_data_RX_time) + "," + "\"pos\": " + str(distances).replace('\'','\"') + "}}"
-            outgoingQ.put(package)
-
-            print 'Packaged calibration data'
-
-            distances = {}  # clear the distances dict
 
 
 
